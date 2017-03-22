@@ -19,7 +19,7 @@ function createDict(file, tok2int, int2tok, sequences)
     return tok2int, int2tok, sequences
 end
 
-#function createDictDir(path="/Users/zanabucinca/Desktop/ConversationalModel/data/")
+
 function createDictDir(path)    
     files = readdir(path)
     global tok2int = Dict{String,Int}()
@@ -115,7 +115,7 @@ function eosmatrix(idx, embeddings)
 end
 end
 
-tok2int, int2tok, sequences = createDictDir("/Users/zanabucinca/Desktop/ConversationalModel/data/dev/");
+tok2int, int2tok, sequences = createDictDir("data/dev/");
 
 #function minibatch(sequences, batchsize)
     #table = Dict{Int,Vector{Vector{Int}}}()
