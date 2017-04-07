@@ -6,33 +6,63 @@ function createDict(file, tok2int, int2tok, sequences)
     
     for w in words
     s = Vector{Int}()
+    
         for c in w
             #assign each word a unique int
             if !haskey(tok2int,c)
                 push!(int2tok,c)
                 tok2int[c] = length(int2tok)
+                freqCount[tok2int[c]]=0
+            else
+
+                freqCount[tok2int[c]]=freqCount[tok2int[c]]+1
             end
+            
             push!(s, tok2int[c])
-        
+                    
     end
     push!(sequences, s)
     end
-    return tok2int, int2tok, sequences
+    return tok2int, int2tok, sequences, freqCount
 end
 
 
-function createDictDir(path)    
+function createDictDir(path,clamp=30)    
     files = readdir(path)
     global tok2int = Dict{String,Int}()
     global int2tok = Vector{String}()
+    global tok2intFreq = Dict{String,Int}()
+    global int2tokFreq = Vector{String}()
+    push!(int2tokFreq,"\n"); tok2intFreq["\n"]=1
+    global freqCount = Dict{Int,Int}()
     sequences = Vector{Vector{Int}}()
-
+    count =0;
     for f in files
         #update the vocabulary by adding new words from each file
-        tok2int,int2tok,sequences = createDict(string(path,f),tok2int,int2tok, sequences)
+
+        tok2int,int2tok,sequences,freqCount = createDict(string(path,f),tok2int,int2tok, sequences)
     end
-    return tok2int, int2tok, sequences
+    for word in freqCount
+        if(word[2]>clamp)
+          push!(int2tokFreq,int2tok[word[1]])
+          tok2intFreq[int2tok[word[1]]]=length(int2tokFreq)
+        end
+
+    end
+    push!(int2tokFreq,"unk")
+    tok2intFreq["unk"]=length(int2tokFreq)
+
+    for i=1:length(sequences)
+        for j=1:length(sequences[i])
+            if !haskey(tok2intFreq,int2tok[sequences[i][j]])
+                sequences[i][j]=tok2intFreq["unk"]
+            end
+        end
+    end
+
+    return tok2intFreq, int2tokFreq, sequences, freqCount
 end
+
 
 let EOS=nothing; global eosmatrix
 function eosmatrix(idx, embeddings)
@@ -75,7 +105,8 @@ end
 
 function s2s(model, inputs, outputs)
     state = initstate(inputs[1], model[:state0])
-    for input in reverse(inputs)
+    for input in inputs
+        input = reverse(input)
         input = onehotrows(input, model[:embed1])
         input = input * model[:embed1]
         state = lstm(model[:encode], state, input)
@@ -112,8 +143,10 @@ end
 function onehotrows(idx, embeddings)
     nrows,ncols = length(idx), size(embeddings,1)
     z = zeros(Float32,nrows,ncols)
-    @inbounds for i=1:nrows
+    for i=1:nrows
+        if(idx[i]!=0 && idx[i]<=nrows)
         z[i,idx[i]] = 1
+        end
     end
     oftype(AutoGrad.getval(embeddings),z)
 end
@@ -184,7 +217,9 @@ end
 function avgloss(model, x, ygold)
     sumloss = cntloss = 0
     for (question, answer) in zip(x,ygold)
-        tokens = (1 + length(answer)) * length(answer[1])
+        convert(KnetArray{KnetArray{Int,1}}, question);
+        convert(KnetArray{KnetArray{Int,1}}, answer)
+        tokens = (1 + length(ygold)) * length(ygold[1])
         sumloss += s2s(model, question, answer)
         cntloss += tokens
     end
@@ -239,7 +274,7 @@ function train(model, x, ygold, opts, epochs)
             floatmodel[:embed2] = convert(Array{Float32},model[:embed2]);
             floatmodel[:decode] = map(a->convert(Array{Float32},a),model[:decode]);
             floatmodel[:output] = map(a->convert(Array{Float32},a),model[:output]);
-            save("modelepoch$i.jld", "model", floatmodel);
+            save("model$i.jld", "model", floatmodel);
     end
     save("epochloss.jld", "epochsloss", epochsloss);  
 end
@@ -250,9 +285,9 @@ function main()
     global model, text, data, tok2int, o, opts
 
     
-    tok2int, int2tok, sequences = createDictDir("data/train/");
+    tok2int, int2tok, sequences = createDictDir("data/train");
     longest = 20;
-    batchsize, statesize, vocabsize = 100, 1000, length(int2tok)
+    batchsize, statesize, vocabsize = 100, 1024, length(int2tok)
     x, ygold = minibatch(sequences,batchsize,longest);
     model = initmodel(statesize,vocabsize);
 
@@ -263,7 +298,7 @@ function main()
 
     opts = oparams(model);
 
-    train(model,x,ygold,opts,10);
+    train(model,x,ygold,opts,20);
 end
 
 main()
